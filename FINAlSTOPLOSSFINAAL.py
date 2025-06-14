@@ -11,6 +11,9 @@ import numpy as np
 from datetime import datetime  # Para imprimir fecha/hora en compra/venta
 from binance.client import Client
 from math import floor
+# [NUEVO] Evitar falsas señales con pendientes casi planas
+EPSILON_PENDIENTE = 0.0001  # solo consideramos bajista si pendiente < -0.0001
+
 
 # [NUEVO] Variables globales para restringir recompra
 ultimo_precio_venta = None
