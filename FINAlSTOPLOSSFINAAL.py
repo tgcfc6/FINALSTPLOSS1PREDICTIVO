@@ -212,7 +212,7 @@ def forecast_pendiente_alcista(exchange):
     precios = np.array([c[4] for c in ohlcv])
     x = np.arange(len(precios))
     pendiente, _ = np.polyfit(x, precios, 1)
-    print(f"[Forecast] pendiente = {pendiente:.6f}")
+    
     return pendiente > -EPSILON_PENDIENTE
 
 # --------------------------------------------------------------------------------
