@@ -406,8 +406,9 @@ def forecast_pendiente_alcista(exchange, symbol='BTC/USDT', timeframe='1m', minu
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         precios = df['close'].values
         x = np.arange(len(precios))
-        pendiente, inter = np.polyfit(x, precios, 1)
-        return pendiente >= 0
+        pendiente, _ = np.polyfit(x, precios, 1)
+        print(f"[Forecast Polyfit] Pendiente: {pendiente:.6f}")
+        return pendiente > -EPSILON_PENDIENTE
     except Exception as e:
         print(f"[Forecast] Error calculando pendiente: {e}")
         return False
