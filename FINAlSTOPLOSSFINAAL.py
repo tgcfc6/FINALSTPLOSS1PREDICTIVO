@@ -667,18 +667,32 @@ def main():
 
             else:
                 # [NUEVO] STOP-LOSS PREDICTIVO: vende si el forecast pinta bajista
+                # justo antes de entrar al while principal:
+                bajista_consecutivo = 0
+
+                # …y dentro del while, en lugar del bloque anterior:
                 if stop_loss_activado:
                     if not forecast_pendiente_alcista(exchange):
+                        bajista_consecutivo += 1
+                    else:
+                        bajista_consecutivo = 0
+
+                    # sólo vendemos a la segunda señal bajista seguida
+                    if bajista_consecutivo >= 2:
                         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        print(f"[{now_str}] ** Forecast bajista detectado. VENDO antes de la caída **")
+                        print(f"[{now_str}] ** Forecast bajista confirmado. VENDO antes de la caída **")
                         vender_btc()
+
+                        # — aquí va el “resto de tu lógica” tras cualquier venta —
                         precioguardado = precio_actual
                         en_dolares = True
                         ultima_operacion = time.time()
                         compra_realizada = False
                         precio_stop_loss = None
-                        # saltamos el resto de la lógica de venta de este ciclo
+
+                        bajista_consecutivo = 0
                         continue
+
 
 
                 # Lógica de venta (original)
