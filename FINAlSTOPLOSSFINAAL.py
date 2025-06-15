@@ -20,7 +20,7 @@ ultimo_precio_venta = None
 tiempo_ultima_venta = 0
 
 # [NUEVO] Variables globales para Stop-Loss
-stop_loss_activado = True     # Puedes poner en False para desactivar
+stop_loss_activado = False     # Puedes poner en False para desactivar
 stop_loss_percent = 0.98      # 0.98 = venta si baja más de 2% desde la compra
 precio_stop_loss = None       # Precio activador
 
