@@ -41,8 +41,10 @@ COPY_API_SECRET = "yBbmeWOjc70SbGwNYcNuspnUw5gMfe7uIKmd9eO1N5EvIejhLz0x4W9ezci0R
 client = Client(COPY_API_KEY, COPY_API_SECRET)
 
 def comprar_btc():
-    """
-    Compra BTC usando todo el saldo disponible en USDT.
+    """Realiza la compra de BTC usando todo el saldo USDT disponible.
+    
+    Devuelve ``True`` si la orden se ejecutó correctamente y ``False`` en caso
+    contrario.
     """
     try:
         global ultimo_precio_venta
@@ -57,10 +59,10 @@ def comprar_btc():
                 ticker_temp = client.get_symbol_ticker(symbol=symbol)
                 btc_price_temp = float(ticker_temp["price"])
                 if btc_price_temp > ultimo_precio_venta:
-                    print("Restricción de recompra: han pasado menos de 20 min y el precio está por encima de la última venta. Se bloquea la compra.")
-                    global en_dolares
-                    en_dolares = True
-                    return
+                    print(
+                        "Restricción de recompra: han pasado menos de 20 min y el precio está por encima de la última venta. Se bloquea la compra."
+                    )
+                    return False
 
         # --- CÓDIGO ORIGINAL (NO SE MODIFICA) ---
         usdt_balance = float(client.get_asset_balance(asset="USDT")["free"])
@@ -75,7 +77,7 @@ def comprar_btc():
 
             if usdt_balance <= 0:
                 print("Saldo insuficiente en USDT para realizar la compra.")
-                return
+                return False
 
             # Obtener el precio actual de BTC/USDT
             symbol = "BTCUSDT"
@@ -107,8 +109,10 @@ def comprar_btc():
 
             # Verificar si la cantidad cumple con el mínimo
             if btc_amount < min_qty:
-                print(f"Error: La cantidad ajustada de BTC ({btc_amount}) es menor al mínimo permitido ({min_qty}).")
-                return
+                print(
+                    f"Error: La cantidad ajustada de BTC ({btc_amount}) es menor al mínimo permitido ({min_qty})."
+                )
+                return False
 
             # Realizar la orden de compra (mercado)
             order = client.order_market_buy(
@@ -119,7 +123,7 @@ def comprar_btc():
 
         except Exception as e:
             print(f"Error al comprar BTC: {e}")
-            return
+            return False
 
         print(f"Orden de compra ejecutada (Spot principal): {order}")
 
@@ -137,8 +141,11 @@ def comprar_btc():
         else:
             print("[Billetera líder] Par no soportado (solo USDT). Se omite la orden.")
 
+        return True
+
     except Exception as e:
         print(f"Error al comprar BTC: {e}")
+        return False
 
 def vender_btc():
     """
@@ -652,11 +659,13 @@ def main():
                     if validacion_adicional(exchange):
                         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                         print(f"[{now_str}] ** COMPRA de BTC a ${precio_actual:.2f} **")
-                        comprar_btc()
-                        precioguardado = precio_actual
-                        en_dolares = False
-                        ultima_operacion = time.time()
-                        compra_realizada = True
+                        if comprar_btc():
+                            precioguardado = precio_actual
+                            en_dolares = False
+                            ultima_operacion = time.time()
+                            compra_realizada = True
+                        else:
+                            print("Compra abortada. Continuamos en USDT.")
                     else:
                         print("Validación adicional desaconseja la compra. Se omite la operación.")
                 elif not forecast_ok:
