@@ -11,16 +11,13 @@ import numpy as np
 from datetime import datetime  # Para imprimir fecha/hora en compra/venta
 from binance.client import Client
 from math import floor
-# [NUEVO] Evitar falsas señales con pendientes casi planas
-EPSILON_PENDIENTE = 0.0001  # solo consideramos bajista si pendiente < -0.0001
-
 
 # [NUEVO] Variables globales para restringir recompra
 ultimo_precio_venta = None
 tiempo_ultima_venta = 0
 
 # [NUEVO] Variables globales para Stop-Loss
-stop_loss_activado = False     # Puedes poner en False para desactivar
+stop_loss_activado = True     # Puedes poner en False para desactivar
 stop_loss_percent = 0.98      # 0.98 = venta si baja más de 2% desde la compra
 precio_stop_loss = None       # Precio activador
 
@@ -61,7 +58,9 @@ def comprar_btc():
                 btc_price_temp = float(ticker_temp["price"])
                 if btc_price_temp > ultimo_precio_venta:
                     print("Restricción de recompra: han pasado menos de 20 min y el precio está por encima de la última venta. Se bloquea la compra.")
-                    return False
+                    global en_dolares
+                    en_dolares = True
+                    return
 
         # --- CÓDIGO ORIGINAL (NO SE MODIFICA) ---
         usdt_balance = float(client.get_asset_balance(asset="USDT")["free"])
@@ -76,7 +75,7 @@ def comprar_btc():
 
             if usdt_balance <= 0:
                 print("Saldo insuficiente en USDT para realizar la compra.")
-                return False
+                return
 
             # Obtener el precio actual de BTC/USDT
             symbol = "BTCUSDT"
@@ -109,7 +108,7 @@ def comprar_btc():
             # Verificar si la cantidad cumple con el mínimo
             if btc_amount < min_qty:
                 print(f"Error: La cantidad ajustada de BTC ({btc_amount}) es menor al mínimo permitido ({min_qty}).")
-                return False
+                return
 
             # Realizar la orden de compra (mercado)
             order = client.order_market_buy(
@@ -120,7 +119,7 @@ def comprar_btc():
 
         except Exception as e:
             print(f"Error al comprar BTC: {e}")
-            return False
+            return
 
         print(f"Orden de compra ejecutada (Spot principal): {order}")
 
@@ -138,11 +137,8 @@ def comprar_btc():
         else:
             print("[Billetera líder] Par no soportado (solo USDT). Se omite la orden.")
 
-        return True
-
     except Exception as e:
         print(f"Error al comprar BTC: {e}")
-        return False
 
 def vender_btc():
     """
@@ -407,45 +403,11 @@ def forecast_pendiente_alcista(exchange, symbol='BTC/USDT', timeframe='1m', minu
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         precios = df['close'].values
         x = np.arange(len(precios))
-        pendiente, _ = np.polyfit(x, precios, 1)
-        
-        return pendiente > -EPSILON_PENDIENTE
+        pendiente, inter = np.polyfit(x, precios, 1)
+        print(f"[Forecast Polyfit] Pendiente: {pendiente:.6f}")
+        return pendiente >= 0
     except Exception as e:
         print(f"[Forecast] Error calculando pendiente: {e}")
-        return False
-
-# ------------------------------------------------------------------------------
-# EMA crossover (12 sobre 26) en marco de 5 minutos
-def ema_crossover_positivo(exchange, symbol='BTC/USDT', timeframe='5m'):
-    try:
-        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=60)
-        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        df['ema_12'] = ta.ema(df['close'], length=12)
-        df['ema_26'] = ta.ema(df['close'], length=26)
-        ema_12 = df['ema_12'].iloc[-1]
-        ema_26 = df['ema_26'].iloc[-1]
-        if pd.isna(ema_12) or pd.isna(ema_26):
-            return False
-        return ema_12 > ema_26 and df['close'].iloc[-1] > ema_12
-    except Exception:
-        return False
-
-# ------------------------------------------------------------------------------
-# Breakout de Bollinger Bands en 5 minutos
-def bollinger_breakout(exchange, symbol='BTC/USDT', timeframe='5m'):
-    try:
-        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=40)
-        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        bb = ta.bbands(df['close'], length=20, std=2)
-        df = pd.concat([df, bb], axis=1)
-        upper = df['BBU_20_2.0'].iloc[-1]
-        close = df['close'].iloc[-1]
-        if pd.isna(upper):
-            return False
-        return close > upper
-    except Exception:
         return False
 
 # --------------------------------------------------------------------------------
@@ -685,42 +647,32 @@ def main():
                 cond_2 = not tendencia_bajista_largo_plazo
                 cond_3 = not supertrend_es_bajista
                 cond_4 = tendencia_mediano_plazo_ok
-                cond_5 = ema_crossover_positivo(exchange)
-                cond_6 = bollinger_breakout(exchange)
 
-                if cond_1 and cond_2 and cond_3 and cond_4 and cond_5 and cond_6 and forecast_ok:
+                if cond_1 and cond_2 and cond_3 and cond_4 and forecast_ok:
                     if validacion_adicional(exchange):
                         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                         print(f"[{now_str}] ** COMPRA de BTC a ${precio_actual:.2f} **")
-                        if comprar_btc():
-                            precioguardado = precio_actual
-                            en_dolares = False
-                            ultima_operacion = time.time()
-                            compra_realizada = True
-                        else:
-                            print("La compra no se ejecutó correctamente. Seguimos en USDT.")
-                            en_dolares = True
-                            compra_realizada = False
+                        comprar_btc()
+                        precioguardado = precio_actual
+                        en_dolares = False
+                        ultima_operacion = time.time()
+                        compra_realizada = True
                     else:
                         print("Validación adicional desaconseja la compra. Se omite la operación.")
                 elif not forecast_ok:
-                    compra_realizada = False
+                    print("Forecast de tendencia lineal desaconseja la compra. Se omite la operación.")
 
             else:
-                # [NUEVO] STOP-LOSS PREDICTIVO: vende si el forecast pinta bajista
-                if stop_loss_activado:
-                    if not forecast_pendiente_alcista(exchange):
-                        now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        print(f"[{now_str}] ** Forecast bajista detectado. VENDO antes de la caída **")
-                        vender_btc()
-                        precioguardado = precio_actual
-                        en_dolares = True
-                        ultima_operacion = time.time()
-                        compra_realizada = False
-                        precio_stop_loss = None
-                        # saltamos el resto de la lógica de venta de este ciclo
-                        continue
-
+                # [NUEVO] STOP-LOSS: Venta inmediata si el precio cae por debajo del stop
+                if stop_loss_activado and precio_stop_loss is not None and precio_actual <= precio_stop_loss:
+                    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    print(f"[{now_str}] ** STOP-LOSS activado. VENTA de BTC a ${precio_actual:.2f} **")
+                    vender_btc()
+                    precioguardado = precio_actual
+                    en_dolares = True
+                    ultima_operacion = time.time()
+                    compra_realizada = False
+                    precio_stop_loss = None
 
                 # Lógica de venta (original)
                 elif variacion >= 0.5:
