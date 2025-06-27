@@ -39,9 +39,17 @@ COPY_API_SECRET = "yBbmeWOjc70SbGwNYcNuspnUw5gMfe7uIKmd9eO1N5EvIejhLz0x4W9ezci0R
 client = Client(COPY_API_KEY, COPY_API_SECRET)
 
 def comprar_btc():
+    """Realiza una compra de BTC con el saldo disponible en USDT.
+
+    La función devuelve ``True`` únicamente si la orden de compra fue
+    ejecutada correctamente. De esta forma el código que llame a esta
+    función puede saber si realmente se adquirió BTC o si la operación
+    fue cancelada (por ejemplo, por la restricción de tiempo después de
+    una venta o por algún error). Esto evita actualizar variables de
+    estado cuando la compra no se llevó a cabo.
     """
-    Compra BTC usando todo el saldo disponible en USDT.
-    """
+
+    orden_ejecutada = False
     try:
         global ultimo_precio_venta
         global tiempo_ultima_venta
@@ -54,8 +62,12 @@ def comprar_btc():
                 ticker_temp = client.get_symbol_ticker(symbol=symbol)
                 btc_price_temp = float(ticker_temp["price"])
                 if btc_price_temp > ultimo_precio_venta:
-                    print("Restricción de recompra: han pasado menos de 20 min y el precio está por encima de la última venta. Se bloquea la compra.")
-                    return
+                    print(
+                        "Restricción de recompra: han pasado menos de 20 min "
+                        "y el precio está por encima de la última venta. Se "
+                        "bloquea la compra."
+                    )
+                    return False
 
         # --- CÓDIGO ORIGINAL (NO SE MODIFICA) ---
         usdt_balance = float(client.get_asset_balance(asset="USDT")["free"])
@@ -70,7 +82,7 @@ def comprar_btc():
 
             if usdt_balance <= 0:
                 print("Saldo insuficiente en USDT para realizar la compra.")
-                return
+                return False
 
             # Obtener el precio actual de BTC/USDT
             symbol = "BTCUSDT"
@@ -96,8 +108,11 @@ def comprar_btc():
 
             # Verificar si la cantidad cumple con el mínimo
             if btc_amount < min_qty:
-                print(f"Error: La cantidad ajustada de BTC ({btc_amount}) es menor al mínimo permitido ({min_qty}).")
-                return
+                print(
+                    f"Error: La cantidad ajustada de BTC ({btc_amount}) es "
+                    f"menor al mínimo permitido ({min_qty})."
+                )
+                return False
 
             # Realizar la orden de compra (mercado)
             order = client.order_market_buy(
@@ -105,9 +120,11 @@ def comprar_btc():
                 quantity=btc_amount
             )
             print(f"Orden de compra ejecutada: {order}")
+            orden_ejecutada = True
 
         except Exception as e:
             print(f"Error al comprar BTC: {e}")
+            return False
 
         print(f"Orden de compra ejecutada (Spot principal): {order}")
 
@@ -126,15 +143,23 @@ def comprar_btc():
                     symbol=symbol,
                     quantity=btc_amount
                 )
-                print(f"Orden de compra ejecutada (Billetera líder): {order_lead}")
+                print(
+                    f"Orden de compra ejecutada (Billetera líder): {order_lead}"
+                )
             except Exception as e_lead:
-                print(f"[Billetera líder] Error al comprar BTC en copy trading: {e_lead}")
+                print(
+                    f"[Billetera líder] Error al comprar BTC en copy trading: {e_lead}"
+                )
         else:
-            print("[Billetera líder] Par no soportado (solo USDT). Se omite la orden.")
+            print(
+                "[Billetera líder] Par no soportado (solo USDT). Se omite la orden."
+            )
 
     except Exception as e:
         print(f"Error al comprar BTC: {e}")
+        return False
 
+    return orden_ejecutada
 
 
 
@@ -709,13 +734,18 @@ def main():
                     # ----------------------------------------
                     if validacion_adicional(exchange):
                         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        print(f"[{now_str}] ** COMPRA de BTC a ${precio_actual:.2f} **")
-                        comprar_btc()
-
-                        precioguardado = precio_actual
-                        en_dolares = False
-                        ultima_operacion = time.time()
-                        compra_realizada = True
+                        print(
+                            f"[{now_str}] ** COMPRA de BTC a ${precio_actual:.2f} **"
+                        )
+                        if comprar_btc():
+                            precioguardado = precio_actual
+                            en_dolares = False
+                            ultima_operacion = time.time()
+                            compra_realizada = True
+                        else:
+                            print(
+                                "Compra no ejecutada: se mantienen las variables sin cambios."
+                            )
                     else:
                         print("Validación adicional desaconseja la compra. Se omite la operación.")
 
