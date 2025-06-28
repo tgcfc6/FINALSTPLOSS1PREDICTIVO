@@ -428,40 +428,11 @@ def verificar_tendencia_mediano_plazo(exchange, symbol='BTC/USDT', timeframe='15
 # --------------------------------------------------------------------------------
 
 # 1) CONFIGURACIONES para las APIs (CAMBIA con tus datos reales)
-CRYPTOPANIC_API_TOKEN = "37b99aaaf91a61655f4d64f82d16aeccfe7223b2"
-CRYPTOPANIC_ENDPOINT = f"https://cryptopanic.com/api/v1/posts/?auth_token={CRYPTOPANIC_API_TOKEN}&filter=negative,important"
-
 FEAR_GREED_ENDPOINT = "https://api.alternative.me/fng/"
 
 def check_noticias_negativas() -> bool:
-    """
-    Verificación de noticias negativas usando CryptoPanic.
-    Retorna True si HAY noticias negativas recientes y relevantes
-    que sugieran NO comprar.
-    """
-    try:
-        response = requests.get(CRYPTOPANIC_ENDPOINT, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            posts = data.get("results", [])
-            ahora = datetime.utcnow()
-            # Filtrar noticias de las últimas 6h
-            recientes = [
-                post for post in posts
-                if "published_at" in post and
-                (ahora - datetime.fromisoformat(post["published_at"][:-1])).total_seconds() <= 21600
-            ]
-
-            if len(recientes) >= 40:  # Umbral ficticio
-                print(f"Se encontraron {len(recientes)} noticias negativas recientes en CryptoPanic.")
-                return True  # Bloquear compra
-            return False
-        else:
-            print(f"Error CryptoPanic: status {response.status_code}")
-            return False
-    except Exception as e:
-        print(f"Error al consultar CryptoPanic: {e}")
-        return False
+    """Placeholder de noticias: sin verificación externa."""
+    return False
 
 
 def check_horarios_preferidos() -> bool:
@@ -619,6 +590,32 @@ def check_binance_24h_ticker() -> bool:
         return True
 
 
+def evaluate_market(df) -> bool:
+    """Evalúa RSI, MACD, SuperTrend y Fear&Greed."""
+    try:
+        rsi = df['rsi'].iloc[-1]
+        macd = df['macd'].iloc[-1]
+        macd_sig = df['macd_signal'].iloc[-1]
+        st_dir = df['supertrend_dir'].iloc[-1]
+        ema = ta.ema(df['close'], length=20)
+        slope = ema.diff().iloc[-1]
+        interno = rsi > 50 and macd > macd_sig and st_dir == 1 and slope > 0
+    except Exception:
+        return False
+
+    try:
+        r = requests.get(FEAR_GREED_ENDPOINT + '?limit=1', timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            valor = int(data.get('data', [{}])[0].get('value', '50'))
+            if valor < 40:
+                return False
+    except Exception:
+        pass
+
+    return interno
+
+
 def validacion_adicional(exchange) -> bool:
     """
     Función que combina TODAS las verificaciones NUEVAS y
@@ -627,41 +624,36 @@ def validacion_adicional(exchange) -> bool:
     Retorna True si ES SEGURO COMPRAR (OK).
     Retorna False si MEJOR EVITAR la compra.
     """
-    # 1) Checar noticias negativas
-    if check_noticias_negativas():
-        print("Alertas negativas en noticias => Bloquear compra.")
-        return False
-
-    # 2) Checar horario preferido
+    # 1) Checar horario preferido
     if not check_horarios_preferidos():
         print("Estamos en horario de alta volatilidad => Bloquear compra.")
         return False
 
-    # 3) Checar Fear & Greed
+    # 2) Checar Fear & Greed
     if not check_fear_and_greed():
         print("Índice de Miedo & Avaricia muy bajo => Bloquear compra.")
         return False
 
-    # 4) Checar ATR
+    # 3) Checar ATR
     if check_atr_alto(exchange):
         print("Volatilidad (ATR) demasiado alta => Bloquear compra.")
         return False
 
-    # 5) Checar volumen bajo
+    # 4) Checar volumen bajo
     if check_volumen_bajo(exchange):
         return False
 
-    # 6) Checar Heikin Ashi
+    # 5) Checar Heikin Ashi
     if not check_heikin_ashi(exchange):
         print("Velas Heikin Ashi no confirman tendencia alcista => Bloquear compra.")
         return False
 
-    # [NUEVO] 7) RSI múltiples timeframes (alarmista)
+    # [NUEVO] 6) RSI múltiples timeframes (alarmista)
     if not check_rsi_multiple_timeframes(exchange):
         print("RSI en múltiples marcos detecta condiciones muy adversas => Bloquear compra.")
         return False
 
-    # [NUEVO] 8) Checar variación 24h en Binance
+    # [NUEVO] 7) Checar variación 24h en Binance
     if not check_binance_24h_ticker():
         print("Variación 24h en Binance demasiado alta => Bloquear compra.")
         return False
@@ -728,7 +720,8 @@ def main():
                 cond_3 = not supertrend_es_bajista
                 cond_4 = tendencia_mediano_plazo_ok
 
-                if cond_1 and cond_2 and cond_3 and cond_4:
+                # Evaluamos mercado antes de comprar
+                if cond_1 and cond_2 and cond_3 and cond_4 and evaluate_market(df):
                     # ----------------------------------------
                     # AQUI INTEGRAMOS LA VALIDACIÓN ADICIONAL
                     # ----------------------------------------
