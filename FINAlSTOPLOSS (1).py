@@ -421,32 +421,11 @@ def forecast_pendiente_alcista(exchange, symbol='BTC/USDT', timeframe='1m', minu
 # (TODO el bloque de validaciones adicionales y checks, igual a tu código original)
 # --------------------------------------------------------------------------------
 
-CRYPTOPANIC_API_TOKEN = "37b99aaaf91a61655f4d64f82d16aeccfe7223b2"
-CRYPTOPANIC_ENDPOINT = f"https://cryptopanic.com/api/v1/posts/?auth_token={CRYPTOPANIC_API_TOKEN}&filter=negative,important"
 FEAR_GREED_ENDPOINT = "https://api.alternative.me/fng/"
 
 def check_noticias_negativas() -> bool:
-    try:
-        response = requests.get(CRYPTOPANIC_ENDPOINT, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            posts = data.get("results", [])
-            ahora = datetime.utcnow()
-            recientes = [
-                post for post in posts
-                if "published_at" in post and
-                (ahora - datetime.fromisoformat(post["published_at"][:-1])).total_seconds() <= 21600
-            ]
-            if len(recientes) >= 40:
-                print(f"Se encontraron {len(recientes)} noticias negativas recientes en CryptoPanic.")
-                return True
-            return False
-        else:
-            print(f"Error CryptoPanic: status {response.status_code}")
-            return False
-    except Exception as e:
-        print(f"Error al consultar CryptoPanic: {e}")
-        return False
+    """Placeholder de noticias: sin uso de CryptoPanic."""
+    return False
 
 def check_horarios_preferidos() -> bool:
     ahora = datetime.now().hour
@@ -569,10 +548,33 @@ def check_binance_24h_ticker() -> bool:
         print(f"Excepción en check_binance_24h_ticker: {e}")
         return True
 
-def validacion_adicional(exchange) -> bool:
-    if check_noticias_negativas():
-        print("Alertas negativas en noticias => Bloquear compra.")
+
+def evaluate_market(df) -> bool:
+    """Evalúa RSI, MACD, SuperTrend y Fear&Greed."""
+    try:
+        rsi = df['rsi'].iloc[-1]
+        macd = df['macd'].iloc[-1]
+        macd_sig = df['macd_signal'].iloc[-1]
+        st_dir = df['supertrend_dir'].iloc[-1]
+        ema = ta.ema(df['close'], length=20)
+        slope = ema.diff().iloc[-1]
+        interno = rsi > 50 and macd > macd_sig and st_dir == 1 and slope > 0
+    except Exception:
         return False
+
+    try:
+        r = requests.get(FEAR_GREED_ENDPOINT + '?limit=1', timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            valor = int(data.get('data', [{}])[0].get('value', '50'))
+            if valor < 40:
+                return False
+    except Exception:
+        pass
+
+    return interno
+
+def validacion_adicional(exchange) -> bool:
     if not check_horarios_preferidos():
         print("Estamos en horario de alta volatilidad => Bloquear compra.")
         return False
@@ -654,7 +656,8 @@ def main():
                 cond_3 = not supertrend_es_bajista
                 cond_4 = tendencia_mediano_plazo_ok
 
-                if cond_1 and cond_2 and cond_3 and cond_4 and forecast_ok:
+                # Evaluamos mercado antes de comprar
+                if cond_1 and cond_2 and cond_3 and cond_4 and forecast_ok and evaluate_market(df):
                     if validacion_adicional(exchange):
                         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                         print(f"[{now_str}] ** COMPRA de BTC a ${precio_actual:.2f} **")
